@@ -351,6 +351,7 @@ describe('sorteo en vivo', () => {
       await page.waitForFunction(() => /Publicado/.test(document.getElementById('o-publicado').textContent));
       const lista = (await (await fetch(sitio.url + '/api/sorteos')).json()).sorteos;
       assert.ok(lista.some((x) => x.titulo === 'Sorteo del bono de $500.000' && x.ensayo && x.participantes === 3), 'quedó publicado');
+      assert.ok(lista.some((x) => /^\d{4}-\d{2}-\d{2}-\d{6}-sorteo-del-bono-de-500-000-ensayo$/.test(x.id)), 'nombre con los segundos: dos sorteos en el mismo minuto no chocan');
       assert.deepEqual(reg.errores, []);
       assert.deepEqual(reg.csp, []);
     } finally { await ctx.close(); }
@@ -394,6 +395,32 @@ describe('historial de ganadores', () => {
       assert.match(bono, /ya no está en los registros: (Laura S\. G\.|Julián L\.|Camila R\.) · …000[123]/);
       assert.deepEqual(reg.errores, []);
       assert.deepEqual(reg.csp, []);
+    } finally { await ctx.close(); }
+  });
+});
+
+describe('historial en este computador', () => {
+  test('un sorteo que no alcanzó a publicarse igual queda con su ganador', async () => {
+    const red = { ...WALKTHROUGH, genesis: Math.floor(Date.now() / 1000) - 37 * 3 + 10 };
+    const { ctx, page, reg } = await nuevaPagina(nav, sitio, { prueba: { red, ventanaMs: 1500, rondaVivo: 38 } });
+    try {
+      await simularDrand(page, (r) => r.fulfill(jsonCors(RONDA_38)));
+      await page.route('**/api/sorteos', (r) => (r.request().method() === 'POST' ? r.abort('internetdisconnected') : r.continue()));
+      await page.goto(sitio.url + '/sorteos/organizador');
+      await page.fill('#o-clave', CLAVE_PRUEBA);
+      await page.click('#o-premios-evento button:nth-child(3)');
+      await page.check('#o-ensayo');
+      await page.click('#o-iniciar');
+      await page.waitForSelector('.sv-ganador.listo', { timeout: 25000 });
+      assert.match(await page.textContent('#o-publicado'), /No se pudo publicar/);
+      await page.click('#o-cerrar-vista');
+      await page.click('#o-ver-historial');
+      await page.waitForSelector('.tarjeta-historial.solo-aqui .th-ganadores', { timeout: 15000 });
+      const t = await page.textContent('.tarjeta-historial.solo-aqui');
+      assert.match(t, /Sorteo del hospedaje/);
+      assert.match(t, /No quedó publicado/);
+      assert.match(t, /Única Persona · 3003330001/);
+      assert.deepEqual(reg.errores, []);
     } finally { await ctx.close(); }
   });
 });
