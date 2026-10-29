@@ -176,6 +176,66 @@ describe('herramienta del organizador', () => {
     } finally { await ctx.close(); }
   });
 
+  test('sorteo rápido: «En 3 min», ganadores sin cargar archivos e índice con todos los sorteos del día', async () => {
+    const { ctx, page } = await nuevaPagina(nav, sitio);
+    try {
+      await page.goto(sitio.url + '/sorteos/organizador');
+      await page.fill('#o-pegar', 'Nombre\tCelular\nAna Gómez\t3001112233\nLuis Peña\t3004445566\nEva Ríos\t3007778899');
+      await page.click('#o-leer');
+      const generar = async (titulo) => {
+        await page.fill('#o-titulo', titulo);
+        await page.fill('#o-premios', 'Reloj');
+        await page.click('#o-rapido [data-min="3"]');
+        const ms = Date.parse((await page.inputValue('#o-hora')) + ':00-05:00');
+        assert.ok(ms >= Date.now() + 3 * 60e3, 'al menos 3 minutos en el futuro');
+        await page.click('#o-generar');
+        await page.waitForFunction((t) => document.querySelector('#o-resumen')?.textContent.includes(t), titulo);
+      };
+      await generar('Sorteo del reloj');
+      assert.match(await page.textContent('#o-estado-ganadores'), /aparecen solos/, 'usa el sorteo recién generado, sin cargar el archivo privado');
+      await generar('Sorteo del hospedaje');
+      const [d] = await Promise.all([page.waitForEvent('download'), page.click('#o-bajar-indice')]);
+      const ind = JSON.parse(readFileSync(await d.path(), 'utf8'));
+      const titulos = ind.sorteos.map((x) => x.titulo);
+      assert.ok(titulos.includes('Sorteo del reloj') && titulos.includes('Sorteo del hospedaje'), 'el índice trae los dos sorteos de hoy');
+    } finally { await ctx.close(); }
+  });
+
+  test('quien ya ganó no vuelve a participar; los suplentes solo si recibieron el premio', async () => {
+    const { pub, prep } = await sorteoDePrueba(NP, { n: 12, premios: ['Reloj', 'Suplente 1'] });
+    const privado = { formato: 'labs-summit-sorteo/v1-privado', id: pub.id, huella: pub.huella, columnas: ['Nombre', 'Código', 'Estado'],
+      participantes: prep.participantes.map((x) => ({ posicion: x.posicion, etiqueta: x.etiqueta, id: x.id, idOriginal: x.idOriginal, nombre: x.nombre, sal: x.sal, fila: x.fila })) };
+    const esperado = await NP.verificar(pub, NP.comprobarRonda(RONDA_38, 38));
+    const [ganador, suplente] = esperado.ganadores.map((g) => prep.participantes[g.posicion - 1]);
+    const { ctx, page } = await nuevaPagina(nav, sitio, { prueba: PRUEBA });
+    try {
+      await simularDrand(page, (r) => r.fulfill(jsonCors(RONDA_38)));
+      await page.goto(sitio.url + '/sorteos/organizador');
+      await page.setInputFiles('#o-publico', { name: pub.id + '.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(pub)) });
+      await page.setInputFiles('#o-privado', { name: pub.id + '.privado.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(privado)) });
+      await page.waitForSelector('.tarjeta-ganador');
+      await page.waitForSelector('#o-excluidos:not([hidden])');
+      assert.deepEqual(await page.$$eval('#o-lista-excluidos li', (xs) => xs.length), 1, 'solo el del premio, no el suplente');
+      assert.match(await page.textContent('#o-lista-excluidos'), new RegExp(ganador.etiqueta.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+      // el suplente recibió el premio (el ganador no estaba): se marca con su botón
+      await page.click('.tarjeta-ganador:nth-of-type(2) button');
+      assert.deepEqual(await page.$$eval('#o-lista-excluidos li', (xs) => xs.length), 2);
+      // siguiente sorteo con una lista nueva que trae a todos otra vez
+      await page.fill('#o-pegar', 'Nombre\tCódigo\n' + prep.participantes.map((x) => x.nombre + '\t' + x.idOriginal).join('\n'));
+      await page.click('#o-leer');
+      await page.waitForSelector('#paso2:not([hidden])');
+      let avisos = await page.textContent('#o-avisos');
+      assert.match(avisos, /10 de 12 filas participan/);
+      assert.match(avisos, /2 filas son de personas que ya ganaron hoy/);
+      // quitar al ganador de la lista (no recibió el premio): vuelve a participar
+      await page.click('#o-lista-excluidos li:first-child button');
+      avisos = await page.textContent('#o-avisos');
+      assert.match(avisos, /11 de 12 filas participan/);
+      assert.ok(!(await page.textContent('#o-lista-excluidos')).includes(ganador.etiqueta));
+      assert.ok((await page.textContent('#o-lista-excluidos')).includes(suplente.etiqueta));
+    } finally { await ctx.close(); }
+  });
+
   test('no deja cerrar un sorteo oficial con la hora ya pasada (se podría conocer el azar)', async () => {
     const { ctx, page } = await nuevaPagina(nav, sitio);
     try {
