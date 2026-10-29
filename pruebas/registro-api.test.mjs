@@ -104,7 +104,7 @@ describe('registro público', () => {
   test('el estado es público, en caché corta y sin datos personales', async () => {
     const r = await pedir('/api/participa');
     assert.equal(r.status, 200);
-    assert.deepEqual(Object.keys(r.d).sort(), ['abierto', 'total']);
+    assert.deepEqual(Object.keys(r.d).sort(), ['abierto', 'total', 'version']);
     assert.equal(r.d.abierto, true);
     assert.equal(r.h.get('cache-control'), 'public, max-age=15');
     assert.equal(r.h.get('x-content-type-options'), 'nosniff');
@@ -158,6 +158,7 @@ describe('herramientas del organizador (con la clave)', () => {
     assert.deepEqual(v.d.registros, []);
     const otra = await inscribir({ nombre: 'Primera Después', celular: '3001010101' });
     assert.equal(otra.d.total, 1, 'el contador vuelve a empezar');
+    assert.ok(otra.d.version >= 2, 'vaciar también cambia la versión');
   });
 });
 
@@ -206,6 +207,29 @@ describe('sorteos publicados', () => {
     }
     assert.equal((await pedir('/api/sorteos?id=../../etc/passwd')).status, 404);
     assert.equal((await pedir('/api/sorteos?id=no-existe-este')).status, 404);
+  });
+});
+
+describe('reiniciar todo después de las pruebas', () => {
+  test('borra registros y sorteos publicados, abre el registro y cambia la versión', async () => {
+    await inscribir({ nombre: 'Persona De Prueba', celular: '3009990001' });
+    await organizador('/api/registros', { accion: 'cerrar' });
+    const { pub } = await sorteoDePrueba(N, { n: 5, ronda: N.rondaEn(Date.now() + 10 * 60e3), id: '2026-10-29-1900-prueba-de-5-min' });
+    assert.equal((await organizador('/api/sorteos', pub)).status, 201);
+    const antes = (await pedir('/api/participa')).d.version;
+    assert.equal((await organizador('/api/registros', { accion: 'reiniciar' })).status, 400, 'pide la palabra REINICIAR');
+    assert.equal((await pedir('/api/registros', { metodo: 'POST', cuerpo: { accion: 'reiniciar', confirmar: 'REINICIAR' } })).status, 401, 'y la clave');
+    const r = await organizador('/api/registros', { accion: 'reiniciar', confirmar: 'REINICIAR' });
+    assert.equal(r.status, 200);
+    assert.equal(r.d.total, 0);
+    assert.equal(r.d.abierto, true);
+    assert.deepEqual((await pedir('/api/sorteos')).d.sorteos, []);
+    const estado = (await pedir('/api/participa')).d;
+    assert.deepEqual([estado.total, estado.abierto], [0, true]);
+    assert.equal(estado.version, antes + 1, 'los celulares ya registrados vuelven a ver el formulario');
+    const nueva = await inscribir({ nombre: 'Persona De Prueba', celular: '3009990001' });
+    assert.equal(nueva.status, 201, 'el mismo celular se puede registrar de nuevo');
+    assert.equal(nueva.d.version, antes + 1);
   });
 });
 

@@ -217,7 +217,7 @@ describe('organizador con los registros del QR', () => {
     } finally { await ctx.close(); }
   });
 
-  test('botones de los premios del evento y ensayo rápido', async () => {
+  test('botones de los premios del evento, sorteo en 1 minuto y ensayo', async () => {
     const { ctx, page } = await nuevaPagina(nav, sitio, { prueba: PRUEBA });
     try {
       await page.goto(sitio.url + '/sorteos/organizador');
@@ -233,12 +233,11 @@ describe('organizador con los registros del QR', () => {
       assert.equal(await page.inputValue('#o-premios'), 'iPad');
       await page.click('#o-premios-evento button:nth-child(1)');
       assert.equal(await page.inputValue('#o-premios'), 'Bono de $500.000 para arreglos de dispositivos tecnológicos');
-      // ensayo: botón de 1 minuto y el botón dice que es un ensayo
-      assert.equal(await page.isHidden('#o-1min'), true);
+      // ensayo: el botón dice que es un ensayo; el sorteo puede ser en 1 minuto
+      assert.deepEqual(await page.$$eval('#o-rapido [data-min]', (xs) => xs.map((x) => x.textContent)), ['En 1 min', 'En 2 min', 'En 3 min', 'En 5 min']);
       await page.check('#o-ensayo');
-      assert.equal(await page.isVisible('#o-1min'), true);
       assert.match(await page.textContent('#o-generar'), /ENSAYO/);
-      await page.click('#o-1min');
+      await page.click('#o-rapido [data-min="1"]');
       await page.click('#o-generar');
       await page.waitForSelector('#paso4:not([hidden])');
       assert.match(await page.textContent('#o-resumen'), /Ensayo/);
@@ -248,7 +247,51 @@ describe('organizador con los registros del QR', () => {
     } finally { await ctx.close(); }
   });
 
+  test('reiniciar todo deja en cero el servidor, este computador y los celulares de prueba', async () => {
+    const cel = await enCelular();
+    const { ctx, page } = await nuevaPagina(nav, sitio, { prueba: PRUEBA });
+    try {
+      // un celular de prueba se registra
+      await cel.page.goto(sitio.url + '/participa');
+      await cel.page.fill('#p-nombre', 'Prueba Del Equipo');
+      await cel.page.fill('#p-celular', '3008880001');
+      await cel.page.check('#p-autoriza');
+      await cel.page.click('#p-enviar');
+      await cel.page.waitForSelector('#p-listo:not([hidden])');
+      // el organizador hace un sorteo de prueba y luego reinicia todo
+      await page.goto(sitio.url + '/sorteos/organizador');
+      await page.fill('#o-clave', CLAVE_PRUEBA);
+      await page.click('#o-traer');
+      await page.waitForSelector('#paso3:not([hidden])');
+      await page.click('#o-premios-evento button:nth-child(1)');
+      await page.click('#o-rapido [data-min="5"]');
+      await page.click('#o-generar');
+      await page.waitForFunction(() => /Publicado/.test(document.getElementById('o-publicado').textContent));
+      assert.match(await page.textContent('#o-premios-evento'), /1\. Bono \$500\.000 ✓/);
+      await page.click('.mas summary');
+      page.removeAllListeners('dialog');
+      page.once('dialog', (d) => d.accept('REINICIAR'));
+      await Promise.all([page.waitForEvent('load'), page.click('#o-reiniciar')]);
+      await page.waitForFunction(() => /Todo quedó en cero/.test(document.getElementById('o-qr-msg').textContent));
+      assert.equal((await api('/api/registros')).total, 0);
+      assert.deepEqual((await (await fetch(sitio.url + '/api/sorteos')).json()).sorteos, []);
+      for (const k of ['lsSorteoGanadores', 'lsSorteosDelDia', 'lsSorteoUltimo']) assert.equal(await page.evaluate((x) => localStorage.getItem(x), k), null, k);
+      assert.equal(await page.evaluate(() => sessionStorage.getItem('lsSorteoClave')), CLAVE_PRUEBA, 'la clave se conserva');
+      assert.doesNotMatch(await page.textContent('#o-premios-evento'), /✓/);
+      assert.equal(await page.isHidden('#paso4'), true);
+      // el celular de prueba ya no aparece como inscrito
+      await cel.page.reload();
+      await cel.page.waitForSelector('#p-form:not([hidden])');
+      assert.equal(await cel.page.isHidden('#p-listo'), true);
+    } finally { await ctx.close(); await cel.ctx.close(); }
+  });
+
   test('vaciar los registros de prueba pide escribir VACIAR', async () => {
+    for (const celular of ['3007770001', '3007770002']) {
+      await fetch(sitio.url + '/api/participa', { method: 'POST', headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': '10.60.0.' + celular.slice(-1) }, body: JSON.stringify({ nombre: 'Prueba Para Vaciar', celular, autoriza: true }) });
+    }
+    const antes = (await api('/api/registros')).total;
+    assert.ok(antes >= 2);
     const { ctx, page } = await nuevaPagina(nav, sitio, { prueba: PRUEBA });
     try {
       await page.goto(sitio.url + '/sorteos/organizador');
@@ -258,12 +301,75 @@ describe('organizador con los registros del QR', () => {
       page.once('dialog', (d) => d.accept('no'));
       await page.click('#o-vaciar');
       await page.waitForFunction(() => /No se borró nada/.test(document.getElementById('o-qr-msg').textContent));
-      assert.equal((await api('/api/registros')).total, 4);
+      assert.equal((await api('/api/registros')).total, antes);
       page.once('dialog', (d) => d.accept('VACIAR'));
       await page.click('#o-vaciar');
       await page.waitForFunction(() => /Se borraron todos/.test(document.getElementById('o-qr-msg').textContent));
       assert.equal((await api('/api/registros')).total, 0);
       assert.match(await page.textContent('#o-qr-estado'), /0 personas registradas/);
+    } finally { await ctx.close(); }
+  });
+});
+
+describe('sorteo en vivo', () => {
+  test('cuenta regresiva para inscribirse, cierre automático y ganador unos segundos después', async () => {
+    await api('/api/registros', { accion: 'vaciar', confirmar: 'VACIAR' });
+    const gente = [['Laura Sánchez Gómez', '3002220001'], ['Julián Lago', '3002220002'], ['Camila Rodríguez', '3002220003']];
+    for (const [nombre, celular] of gente) {
+      await fetch(sitio.url + '/api/participa', { method: 'POST', headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': '10.70.0.' + celular.slice(-1) }, body: JSON.stringify({ nombre, celular, autoriza: true }) });
+    }
+    // cadena de prueba en la que la ronda 38 sale ~12 s después: 3 s de inscripción y el ganador unos segundos más tarde
+    const red = { ...WALKTHROUGH, genesis: Math.floor(Date.now() / 1000) - 37 * 3 + 12 };
+    const { ctx, page, reg } = await nuevaPagina(nav, sitio, { prueba: { red, ventanaMs: 3000, rondaVivo: 38 } });
+    try {
+      await page.setViewportSize({ width: 1600, height: 900 });
+      await simularDrand(page, (r) => r.fulfill(jsonCors(RONDA_38)));
+      await page.goto(sitio.url + '/sorteos/organizador');
+      await page.fill('#o-clave', CLAVE_PRUEBA);
+      // sin premio no arranca
+      await page.click('#o-iniciar');
+      assert.match(await page.textContent('#o-vivo-msg'), /Elige el premio/);
+      await page.click('#o-premios-evento button:nth-child(1)');
+      await page.check('#o-ensayo');
+      await page.click('#o-iniciar');
+      await page.waitForSelector('.sv-inscripcion');
+      assert.match(await page.textContent('#svi-cuenta'), /^00:0[0-3]$/);
+      assert.equal(await page.isVisible('.svi-qr img'), true);
+      assert.match(await page.textContent('.sv-inscripcion'), /Bono de \$500\.000/);
+      await page.waitForFunction(() => /3 personas inscritas/.test(document.getElementById('svi-inscritos')?.textContent || ''));
+      // al llegar a cero se cierra sola y aparece el sorteo con su huella y la cuenta de unos segundos
+      await page.waitForSelector('.sv-datos', { timeout: 15000 });
+      assert.match(await page.textContent('.sv-cab'), /Sorteo del bono de \$500\.000/);
+      assert.match(await page.textContent('.sv-cab'), /\+ 2 suplentes/);
+      await page.waitForSelector('.confeti', { timeout: 25000 });
+      // en la pantalla del evento el ganador sale con su nombre completo (en la web sigue abreviado)
+      const ganador = await page.textContent('.sv-ganador .et');
+      assert.ok(['Laura Sánchez Gómez', 'Julián Lago', 'Camila Rodríguez'].includes(ganador), ganador);
+      assert.match(await page.textContent('.sv-ganador small'), /· …000[123] · N\.º \d de la lista/);
+      const publicado = await (await fetch(sitio.url + '/api/sorteos?id=' + encodeURIComponent((await (await fetch(sitio.url + '/api/sorteos')).json()).sorteos[0].id))).text();
+      assert.ok(!publicado.includes('Sánchez') && !publicado.includes('Rodríguez'), 'el archivo público no lleva nombres completos');
+      await page.waitForFunction(() => /Publicado/.test(document.getElementById('o-publicado').textContent));
+      const lista = (await (await fetch(sitio.url + '/api/sorteos')).json()).sorteos;
+      assert.ok(lista.some((x) => x.titulo === 'Sorteo del bono de $500.000' && x.ensayo && x.participantes === 3), 'quedó publicado');
+      assert.deepEqual(reg.errores, []);
+      assert.deepEqual(reg.csp, []);
+    } finally { await ctx.close(); }
+  });
+
+  test('con pocos inscritos quita los suplentes que no alcanzan', async () => {
+    await api('/api/registros', { accion: 'vaciar', confirmar: 'VACIAR' });
+    await fetch(sitio.url + '/api/participa', { method: 'POST', headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': '10.71.0.1' }, body: JSON.stringify({ nombre: 'Única Persona', celular: '3003330001', autoriza: true }) });
+    const red = { ...WALKTHROUGH, genesis: Math.floor(Date.now() / 1000) - 37 * 3 + 30 };
+    const { ctx, page } = await nuevaPagina(nav, sitio, { prueba: { red, ventanaMs: 1500, rondaVivo: 38 } });
+    try {
+      await page.goto(sitio.url + '/sorteos/organizador');
+      await page.fill('#o-clave', CLAVE_PRUEBA);
+      await page.click('#o-premios-evento button:nth-child(2)');
+      await page.check('#o-ensayo');
+      await page.click('#o-iniciar');
+      await page.waitForSelector('.sv-datos', { timeout: 15000 });
+      assert.doesNotMatch(await page.textContent('.sv-cab'), /suplente/);
+      assert.match(await page.textContent('.sv-cab'), /iPad/);
     } finally { await ctx.close(); }
   });
 });

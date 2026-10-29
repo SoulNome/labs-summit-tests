@@ -185,9 +185,9 @@ describe('herramienta del organizador', () => {
       const generar = async (titulo) => {
         await page.fill('#o-titulo', titulo);
         await page.fill('#o-premios', 'Reloj');
-        await page.click('#o-rapido [data-min="3"]');
+        await page.click('#o-rapido [data-min="1"]');
         const ms = Date.parse((await page.inputValue('#o-hora')) + ':00-05:00');
-        assert.ok(ms >= Date.now() + 3 * 60e3, 'al menos 3 minutos en el futuro');
+        assert.ok(ms >= Date.now() + 60e3, 'al menos 1 minuto en el futuro');
         await page.click('#o-generar');
         await page.waitForFunction((t) => document.querySelector('#o-resumen')?.textContent.includes(t), titulo);
       };
@@ -247,7 +247,7 @@ describe('herramienta del organizador', () => {
       await page.fill('#o-hora', horaLocal(Date.now() - 5 * 60e3));
       await page.click('#o-generar');
       await page.waitForSelector('#o-error:not([hidden])');
-      assert.match(await page.textContent('#o-error'), /al menos 3 minutos/);
+      assert.match(await page.textContent('#o-error'), /al menos 1 minuto/);
       assert.equal(await page.isHidden('#paso4'), true);
       await page.check('#o-ensayo');
       await page.click('#o-generar');
