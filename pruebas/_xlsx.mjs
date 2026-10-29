@@ -39,7 +39,7 @@ export function crearXlsx(filas, { enlaces = {}, comprimir = false, compartidas 
     if (!indice.has(v)) { indice.set(v, textos.length); textos.push(v); }
     return `<c r="${ref}" t="s"><v>${indice.get(v)}</v></c>`;
   };
-  const xmlFilas = filas.map((f, i) => `<row r="${i + 1}">${f.map((v, j) => (v === '' ? '' : celda(v, letra(j) + (i + 1)))).join('')}</row>`).join('');
+  const xmlFilas = filas.map((f, i) => `<row r="${i + 1}">${f.map((v, j) => { const ref = letra(j) + (i + 1); return v === '' && !celdasExtra[ref] ? '' : celda(v, ref); }).join('')}</row>`).join('');
   const refs = Object.entries(enlaces);
   const archivos = {
     '[Content_Types].xml': '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>',

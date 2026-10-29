@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 import { iniciarSitio } from './_sitio.mjs';
 import { chromium, nuevaPagina, simularDrand, jsonCors } from './_navegador.mjs';
 import { cargarNucleos, sorteoDePrueba, clonar, WALKTHROUGH, RONDA_38 } from './_datos.mjs';
-import { excelCoccoaFalso } from './_xlsx.mjs';
+import { excelCoccoaFalso, crearXlsx } from './_xlsx.mjs';
 
 let sitio, nav, N, NP;
 before(async () => { ({ N, NP } = cargarNucleos()); sitio = await iniciarSitio(); nav = await chromium.launch(); });
@@ -37,7 +37,7 @@ describe('herramienta del organizador', () => {
       await page.goto(sitio.url + '/sorteos/organizador');
       await page.setInputFiles('#o-archivo', { name: 'ventas-coccoa.csv', mimeType: 'text/csv', buffer: Buffer.from(csv, 'latin1') });
       await page.waitForSelector('#paso2:not([hidden])');
-      assert.match(await page.textContent('#o-leido'), /6 boletas \(filas\) con 5 columnas/);
+      assert.match(await page.textContent('#o-leido'), /6 filas con 5 columnas/);
       // columnas adivinadas por el título
       assert.equal(await page.$eval('#o-col-id', (s) => s.options[s.selectedIndex].text), 'Código boleta');
       assert.equal(await page.$eval('#o-col-nombre', (s) => s.options[s.selectedIndex].text), 'Nombre');
@@ -53,7 +53,7 @@ describe('herramienta del organizador', () => {
       await page.click('#o-generar');
       await page.waitForSelector('#paso4:not([hidden])');
       const resumen = await page.textContent('#o-resumen');
-      assert.match(resumen, /4 boletas participan/);
+      assert.match(resumen, /4 participaciones/);
       assert.match(resumen, /1 filas quedaron fuera por el filtro/);
       assert.match(resumen, /1 filas sin identificador/);
       assert.match(resumen, /1 repetidas/);
@@ -92,7 +92,7 @@ describe('herramienta del organizador', () => {
       await page.goto(sitio.url + '/sorteos/organizador');
       await page.setInputFiles('#o-archivo', { name: 'Labs_Summit_.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer });
       await page.waitForSelector('#paso2:not([hidden])');
-      assert.match(await page.textContent('#o-leido'), /30 boletas/);
+      assert.match(await page.textContent('#o-leido'), /30 filas/);
       const elegida = (sel) => page.$eval(sel, (s) => s.options[s.selectedIndex].text);
       assert.equal(await elegida('#o-col-id'), 'Código del enlace (Visualizar código)');
       assert.equal(await elegida('#o-col-nombre'), 'Nombre');
@@ -101,10 +101,10 @@ describe('herramienta del organizador', () => {
       for (const g of ['Tipo', 'Etapa', 'Metodo de pago', 'Promotor']) assert.ok(grupos.includes(g), 'filtro por ' + g);
       for (const g of ['Visualizar código', 'Reenviar', 'Precio', 'Id Pago', 'Valido', 'Dia vendido', 'Nombre', 'Correo']) assert.ok(!grupos.includes(g), 'sin filtro por ' + g);
       const avisos = await page.textContent('#o-avisos');
-      assert.match(avisos, /30 de 30 boletas participan/);
-      assert.match(avisos, /Ventas incluidas: desde 2026-10-28/);
+      assert.match(avisos, /30 de 30 filas participan/);
+      assert.match(avisos, /registros desde 2026-10-28/);
       assert.match(avisos, /código del enlace/);
-      assert.match(avisos, /27 boletas .*«Cortesía»/);
+      assert.match(avisos, /27 de las que participan son de cortesía/);
       assert.match(await page.textContent('#o-muestra'), /María J\. E\. · …1000/);
       // con el correo como identificador se juntarían personas distintas: la herramienta lo advierte
       await page.selectOption('#o-col-id', { label: 'Correo' });
@@ -112,7 +112,7 @@ describe('herramienta del organizador', () => {
       await page.selectOption('#o-col-id', { label: 'Código del enlace (Visualizar código)' });
       // solo las compradas
       await page.uncheck('#o-grupos input[value="Cortesia"]');
-      assert.match(await page.textContent('#o-avisos'), /3 de 30 boletas participan/);
+      assert.match(await page.textContent('#o-avisos'), /3 de 30 filas participan/);
       await page.check('#o-grupos input[value="Cortesia"]');
 
       await page.fill('#o-titulo', 'Sorteo Día 2');
@@ -120,7 +120,7 @@ describe('herramienta del organizador', () => {
       await page.fill('#o-hora', horaLocal(Date.now() + 10 * 60e3));
       await page.click('#o-generar');
       await page.waitForSelector('#paso4:not([hidden])');
-      assert.match(await page.textContent('#o-resumen'), /30 boletas participan/);
+      assert.match(await page.textContent('#o-resumen'), /30 participaciones/);
       const [d1] = await Promise.all([page.waitForEvent('download'), page.click('#o-bajar-publico')]);
       const texto = readFileSync(await d1.path(), 'utf8'), s = JSON.parse(texto);
       assert.equal(s.participantes.length, 30, 'cada boleta cuenta, aunque compartan correo o celular');
@@ -134,6 +134,44 @@ describe('herramienta del organizador', () => {
       const priv = JSON.parse(readFileSync(await d2.path(), 'utf8'));
       assert.equal(priv.revelable, false, 'el código del enlace nunca se revela');
       assert.deepEqual(priv.participantes.map((x) => x.idOriginal), codigos);
+      assert.deepEqual(reg.errores, []);
+    } finally { await ctx.close(); }
+  });
+
+  test('registros del QR (Google Forms): cada celular participa una vez aunque se registre varias veces', async () => {
+    const filas = [['Marca temporal', 'Nombre completo', 'Celular', 'Autorizo el tratamiento de mis datos personales']], extra = {};
+    const gente = [['ana gómez', '+57 300 123 4567'], ['Luis Peña', '3011112222'], ['Ana Gómez', '3001234567'],   // Ana se registró dos veces
+      ['MARÍA JOSÉ RÍOS', '(302) 333-4444'], ['Carlos Ruiz', '573045556666'], ['Sofía Castro', '305 777 8888']];
+    gente.forEach(([nombre, cel], i) => {
+      filas.push(['', nombre, cel, 'Sí, autorizo']);
+      extra['A' + (i + 2)] = `<c r="A${i + 2}" s="1"><v>${(46324.68 + i * 0.001).toFixed(6)}</v></c>`;   // así guarda Google la «Marca temporal»
+    });
+    const buffer = crearXlsx(filas, { compartidas: true, comprimir: true, celdasExtra: extra, hoja: 'Respuestas de formulario 1' });
+    const { ctx, page, reg } = await nuevaPagina(nav, sitio);
+    try {
+      await page.goto(sitio.url + '/sorteos/organizador');
+      await page.setInputFiles('#o-archivo', { name: 'Sorteo Labs Summit (respuestas).xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer });
+      await page.waitForSelector('#paso2:not([hidden])');
+      const elegida = (sel) => page.$eval(sel, (x) => x.options[x.selectedIndex].text);
+      assert.equal(await elegida('#o-col-id'), 'Celular');
+      assert.equal(await elegida('#o-col-nombre'), 'Nombre completo');
+      assert.equal(await elegida('#o-col-visible'), '— el identificador —');
+      assert.equal(await page.isHidden('#o-filtros'), true, 'no hay nada que filtrar');
+      assert.match(await page.textContent('#o-avisos'), /registros desde 2026-10-29 16:19/);
+      assert.match(await page.textContent('#o-muestra'), /Ana G\. · …4567/);
+      await page.fill('#o-titulo', 'Gran sorteo en vivo');
+      await page.fill('#o-premios', 'Reloj\nHospedaje\nTablet\nCelular');
+      await page.fill('#o-hora', horaLocal(Date.now() + 10 * 60e3));
+      await page.click('#o-generar');
+      await page.waitForSelector('#paso4:not([hidden])');
+      const resumen = await page.textContent('#o-resumen');
+      assert.match(resumen, /5 participaciones/);
+      assert.match(resumen, /1 repetidas/);
+      const [d] = await Promise.all([page.waitForEvent('download'), page.click('#o-bajar-publico')]);
+      const texto = readFileSync(await d.path(), 'utf8'), s = JSON.parse(texto);
+      assert.deepEqual(s.participantes.map((p) => p[0]), ['Ana G. · …4567', 'Luis P. · …2222', 'María J. R. · …4444', 'Carlos R. · …6666', 'Sofía C. · …8888']);
+      assert.deepEqual(s.premios, ['Reloj', 'Hospedaje', 'Tablet', 'Celular']);
+      for (const [, cel] of gente) assert.ok(!texto.includes(cel.replace(/\D/g, '').slice(-10)), 'sin celulares completos');
       assert.deepEqual(reg.errores, []);
     } finally { await ctx.close(); }
   });
@@ -173,7 +211,7 @@ describe('herramienta del organizador', () => {
       const tarjetas = await page.$$eval('.tarjeta-ganador', (xs) => xs.map((x) => x.textContent));
       assert.equal(tarjetas.length, 2);
       esperado.ganadores.forEach((g, i) => {
-        assert.match(tarjetas[i], new RegExp('boleta n\\.º ' + g.posicion + '\\b'));
+        assert.match(tarjetas[i], new RegExp('n\\.º ' + g.posicion + '\\b'));
         assert.match(tarjetas[i], /Coincide con el compromiso publicado/);
         assert.ok(tarjetas[i].includes(prep.participantes[g.posicion - 1].idOriginal), 'muestra el código completo para contactarlo');
       });

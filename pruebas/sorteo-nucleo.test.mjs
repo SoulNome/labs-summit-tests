@@ -66,6 +66,9 @@ describe('textos y etiquetas', () => {
     assert.equal(N.normalizarId(' 1116 234-567 '), '1116234567');
     assert.equal(N.normalizarId('maria@Gmail.com'), 'MARIA@GMAIL.COM');
     assert.equal(N.normalizarId('ls 20669 0153'), 'LS206690153');
+    // el mismo celular escrito de distintas formas en el formulario del QR
+    for (const cel of ['+57 300 123 4567', '3001234567', '573001234567', '(300) 123-4567', '300.123.4567']) assert.equal(N.normalizarId(cel), '3001234567', cel);
+    assert.equal(N.normalizarId('1000000000829452937'), '1000000000829452937', 'un código largo no se toma por celular');
   });
   test('nombre corto: primer nombre + iniciales, sin partículas', () => {
     assert.equal(N.nombreCorto('MARÍA JOSÉ ECHEVERRI'), 'María J. E.');
