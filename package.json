@@ -1,0 +1,23 @@
+{
+  "name": "labs-summit-tests",
+  "private": true,
+  "description": "Pruebas de seguridad, resiliencia y sorteos verificables de labssummit.com",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test --test-concurrency=1 \"pruebas/*.test.mjs\"",
+    "test:sorteo": "node --test --test-concurrency=1 \"pruebas/sorteo-*.test.mjs\"",
+    "test:seguridad": "node --test --test-concurrency=1 \"pruebas/seguridad-*.test.mjs\" \"pruebas/resiliencia.test.mjs\"",
+    "sitio": "node herramientas/servidor-local.mjs",
+    "construir:drand-bls": "node herramientas/construir-drand-bls.mjs"
+  },
+  "devDependencies": {
+    "@noble/curves": "1.9.7",
+    "@noble/hashes": "1.8.0",
+    "esbuild": "0.28.2",
+    "playwright": "1.63.0",
+    "wrangler": "4.150.0"
+  }
+}
