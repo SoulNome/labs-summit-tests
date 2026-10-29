@@ -2,7 +2,7 @@
 
 Pruebas automáticas de **labssummit.com** (repo [`SoulNome/labs-summit-2026`](https://github.com/SoulNome/labs-summit-2026)): seguridad, resistencia a caídas y sorteos verificables.
 
-Las pruebas levantan una copia local del sitio con `wrangler pages dev`, que aplica `_headers`, `_routes.json` y la función `functions/[[ruta]].js` igual que Cloudflare Pages, y la atacan con peticiones HTTP y con un navegador real (Chromium de Playwright). No se necesita internet: drand y los servicios externos se simulan.
+Las pruebas levantan una copia local del sitio con `wrangler pages dev`, que aplica `_headers`, `_routes.json` y las funciones de `functions/` igual que Cloudflare Pages, y la atacan con peticiones HTTP y con un navegador real (Chromium de Playwright). No se necesita internet: drand y los servicios externos se simulan. Para el registro del QR (`/api/*`) se arranca también una copia con una base D1 local y la clave `SORTEO_CLAVE` de prueba, como el sitio ya configurado en Cloudflare.
 
 ## Cómo correrlas
 
@@ -16,6 +16,7 @@ npx playwright install chromium   # solo la primera vez
 npm test                          # todo (≈ 1–2 min)
 npm run test:sorteo               # solo el sorteo
 npm run test:seguridad            # solo seguridad y caídas
+npm run test:registro             # solo el registro del QR y su API
 npm run sitio                     # copia local en http://127.0.0.1:8788
 ```
 
@@ -32,6 +33,8 @@ npm run sitio                     # copia local en http://127.0.0.1:8788
 | `pruebas/sorteo-nucleo.test.mjs` | Acta y huella (SHA-256). Detecta cualquier cambio en la lista, los premios o la ronda. Verificación BLS de drand con una ronda real firmada. Rechaza respuestas falsas de drand. Selección sin sesgo (prueba de chi cuadrado). Lectura de CSV/Excel (`;`, comillas, Windows-1252). Duplicados y revelación del ganador. |
 | `pruebas/sorteo-python.test.mjs` | El verificador independiente en Python (`sorteos/verificar.py`) da la misma huella y los mismos ganadores que la página, y detecta archivos manipulados. |
 | `pruebas/sorteo-navegador.test.mjs` | El flujo completo: el organizador sube el CSV de Coccoa, filtra pagos pendientes y genera los archivos sin datos personales. La página pública verifica y muestra a los ganadores, la pantalla grande funciona, la cuenta regresiva aparece antes de la hora, y se rechazan un archivo manipulado y un relevo de drand que miente. |
+| `pruebas/registro-api.test.mjs` | La API del registro (`functions/api/[[ruta]].js`) con D1 local: un registro por celular (`+57 300…` y `300…` son el mismo), datos inválidos, nombres con HTML o caracteres invisibles, campo trampa para robots, solo JSON pequeño del propio sitio, límite por conexión, clave del organizador (con bloqueo tras 20 intentos fallidos), abrir/cerrar, quitar y vaciar registros, publicar sorteos (un sorteo oficial no se publica después de que sale su número; la misma id con otra lista se rechaza) y que sin la base configurada todo responda 503 sin afectar el resto del sitio. |
+| `pruebas/registro-navegador.test.mjs` | `/participa` en un celular: errores por campo, registro, celular repetido, caída de la señal (los datos siguen escritos), registro cerrado y sin configurar, sin HTML inyectado ni violaciones de CSP. La pantalla con el QR. El organizador trae los registros con la clave, genera el sorteo y queda publicado al instante en `/sorteos/` sin celulares ni nombres completos. La pantalla del sorteo revela al ganador con confeti, los suplentes aparte y el QR para registrarse. |
 
 ## Por qué no hay prueba de carga contra producción
 

@@ -113,7 +113,7 @@ describe('páginas de sorteos blindadas', () => {
 });
 
 describe('sin errores ni violaciones de CSP al navegar normalmente', () => {
-  for (const ruta of ['/', '/speakers', '/mapa/?lista', '/politica', '/terminos', '/sorteos/', '/sorteos/organizador']) {
+  for (const ruta of ['/', '/speakers', '/mapa/?lista', '/politica', '/terminos', '/sorteos/', '/sorteos/organizador', '/participa', '/participa?pantalla']) {
     test(ruta, async () => {
       const { ctx, page, reg } = await nuevaPagina(nav, sitio);
       try {

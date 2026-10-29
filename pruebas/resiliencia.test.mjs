@@ -80,7 +80,7 @@ describe('mapa sin señal en el Coliseo', () => {
     const { ctx, page, reg } = await nuevaPagina(nav, local, { serviceWorkers: 'allow' });
     try {
       await page.goto(local.url + '/mapa/?lista', { waitUntil: 'load' });
-      await page.evaluate(() => navigator.serviceWorker.ready);
+      await page.evaluate(() => Promise.race([navigator.serviceWorker.ready, new Promise((_, mal) => setTimeout(() => mal(new Error('el service worker no se activó')), 20000))]));
       await page.waitForFunction(async () => (await caches.keys()).some((k) => k.startsWith('mapa-')) && (await (await caches.open((await caches.keys()).find((k) => k.startsWith('mapa-')))).keys()).length >= 9, null, { timeout: 30000 });
       await ctx.setOffline(true);
       await page.reload({ waitUntil: 'load' });

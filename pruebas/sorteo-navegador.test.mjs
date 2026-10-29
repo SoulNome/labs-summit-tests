@@ -203,7 +203,7 @@ describe('herramienta del organizador', () => {
 
   test('quien ya ganó no vuelve a participar; los suplentes solo si recibieron el premio', async () => {
     const { pub, prep } = await sorteoDePrueba(NP, { n: 12, premios: ['Reloj', 'Suplente 1'] });
-    const privado = { formato: 'labs-summit-sorteo/v1-privado', id: pub.id, huella: pub.huella, columnas: ['Nombre', 'Código', 'Estado'],
+    const privado = { formato: 'labs-summit-sorteo/v1-privado', id: pub.id, huella: pub.huella, columnas: ['Nombre', 'Código', 'Estado'], revelable: true,
       participantes: prep.participantes.map((x) => ({ posicion: x.posicion, etiqueta: x.etiqueta, id: x.id, idOriginal: x.idOriginal, nombre: x.nombre, sal: x.sal, fila: x.fila })) };
     const esperado = await NP.verificar(pub, NP.comprobarRonda(RONDA_38, 38));
     const [ganador, suplente] = esperado.ganadores.map((g) => prep.participantes[g.posicion - 1]);
@@ -258,7 +258,7 @@ describe('herramienta del organizador', () => {
 
   test('después del sorteo muestra los datos de contacto del ganador y genera la revelación', async () => {
     const { pub, prep } = await sorteoDePrueba(NP, { n: 12 });
-    const privado = { formato: 'labs-summit-sorteo/v1-privado', id: pub.id, huella: pub.huella, columnas: ['Nombre', 'Código', 'Estado'],
+    const privado = { formato: 'labs-summit-sorteo/v1-privado', id: pub.id, huella: pub.huella, columnas: ['Nombre', 'Código', 'Estado'], revelable: true,
       participantes: prep.participantes.map((x) => ({ posicion: x.posicion, etiqueta: x.etiqueta, id: x.id, idOriginal: x.idOriginal, nombre: x.nombre, sal: x.sal, fila: x.fila })) };
     const esperado = await NP.verificar(pub, NP.comprobarRonda(RONDA_38, 38));
     const { ctx, page } = await nuevaPagina(nav, sitio, { prueba: PRUEBA });

@@ -7,7 +7,7 @@ let sitio;
 before(async () => { sitio = await iniciarSitio(); });
 after(async () => { await sitio.cerrar(); });
 
-const PAGINAS = ['/', '/speakers', '/mapa/', '/sorteos/', '/sorteos/organizador', '/politica', '/terminos', '/404.html'];
+const PAGINAS = ['/', '/participa', '/speakers', '/mapa/', '/sorteos/', '/sorteos/organizador', '/politica', '/terminos', '/404.html'];
 const pedir = (ruta, op) => fetch(sitio.url + ruta, { redirect: 'manual', ...op });
 
 /** Directivas de cada política CSP (puede haber varias, separadas por comas). */
@@ -49,7 +49,7 @@ describe('cabeceras de seguridad en todas las páginas', () => {
 });
 
 describe('sorteos: política estricta', () => {
-  for (const ruta of ['/sorteos/', '/sorteos/organizador', '/sorteos/datos/indice.json']) {
+  for (const ruta of ['/sorteos/', '/sorteos/organizador', '/sorteos/datos/indice.json', '/participa']) {
     test(ruta, async () => {
       const r = await fetch(sitio.url + ruta);
       const csp = politicas(r.headers.get('content-security-policy'));
@@ -65,8 +65,19 @@ describe('sorteos: política estricta', () => {
       for (const o of estricta['connect-src']) assert.ok(csp[0]['connect-src'].includes(o), o + ' también en la general');
     });
   }
-  test('la herramienta del organizador no se indexa en buscadores', async () => {
+  test('la herramienta del organizador y el registro del QR no se indexan en buscadores', async () => {
     assert.match((await fetch(sitio.url + '/sorteos/organizador')).headers.get('x-robots-tag') || '', /noindex/);
+    assert.match((await fetch(sitio.url + '/participa')).headers.get('x-robots-tag') || '', /noindex/);
+  });
+  test('el registro del QR solo se conecta con el propio sitio', async () => {
+    const csp = politicas((await fetch(sitio.url + '/participa')).headers.get('content-security-policy'));
+    assert.deepEqual(csp[1]['connect-src'], ["'self'"]);
+  });
+  test('la API no queda abierta a otros sitios ni en caché del navegador', async () => {
+    const r = await fetch(sitio.url + '/api/participa');
+    assert.equal(r.headers.get('access-control-allow-origin'), null);
+    assert.match(r.headers.get('content-security-policy') || '', /default-src 'none'/);
+    assert.equal(r.headers.get('x-content-type-options'), 'nosniff');
   });
   test('el índice de sorteos es JSON válido', async () => {
     const r = await fetch(sitio.url + '/sorteos/datos/indice.json');

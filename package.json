@@ -7,9 +7,10 @@
     "node": ">=22"
   },
   "scripts": {
-    "test": "node --test --test-concurrency=1 \"pruebas/*.test.mjs\"",
-    "test:sorteo": "node --test --test-concurrency=1 \"pruebas/sorteo-*.test.mjs\"",
-    "test:seguridad": "node --test --test-concurrency=1 \"pruebas/seguridad-*.test.mjs\" \"pruebas/resiliencia.test.mjs\"",
+    "test": "node --test --test-concurrency=1 --test-timeout=180000 \"pruebas/*.test.mjs\"",
+    "test:sorteo": "node --test --test-concurrency=1 --test-timeout=180000 \"pruebas/sorteo-*.test.mjs\"",
+    "test:seguridad": "node --test --test-concurrency=1 --test-timeout=180000 \"pruebas/seguridad-*.test.mjs\" \"pruebas/resiliencia.test.mjs\"",
+    "test:registro": "node --test --test-concurrency=1 --test-timeout=180000 \"pruebas/registro-*.test.mjs\"",
     "sitio": "node herramientas/servidor-local.mjs",
     "construir:drand-bls": "node herramientas/construir-drand-bls.mjs"
   },
