@@ -393,6 +393,13 @@ describe('historial de ganadores', () => {
       assert.match(ipad, /Ensayo/);
       assert.match(ipad, /iPad\s*Única Persona · 3003330001/);
       assert.match(bono, /ya no está en los registros: (Laura S\. G\.|Julián L\.|Camila R\.) · …000[123]/);
+      // un ganador de un ensayo usado como sorteo real se marca desde el historial
+      const boton = page.locator('.tarjeta-historial', { hasText: 'Sorteo del iPad' }).locator('.th-ganadores button').first();
+      assert.match(await boton.textContent(), /Marcar que recibió el premio/);
+      await boton.click();
+      assert.match(await boton.textContent(), /Recibió el premio ✓/);
+      assert.match(await page.textContent('#o-lista-excluidos'), /Única P\. · …0001 · iPad/);
+      assert.match(await page.textContent('#o-premios-evento'), /2\. iPad ✓/);
       assert.deepEqual(reg.errores, []);
       assert.deepEqual(reg.csp, []);
     } finally { await ctx.close(); }
