@@ -6,6 +6,7 @@ import { readFileSync } from 'node:fs';
 import { iniciarSitio } from './_sitio.mjs';
 import { chromium, nuevaPagina, simularDrand, jsonCors } from './_navegador.mjs';
 import { cargarNucleos, sorteoDePrueba, clonar, WALKTHROUGH, RONDA_38 } from './_datos.mjs';
+import { excelCoccoaFalso } from './_xlsx.mjs';
 
 let sitio, nav, N, NP;
 before(async () => { ({ N, NP } = cargarNucleos()); sitio = await iniciarSitio(); nav = await chromium.launch(); });
@@ -36,14 +37,14 @@ describe('herramienta del organizador', () => {
       await page.goto(sitio.url + '/sorteos/organizador');
       await page.setInputFiles('#o-archivo', { name: 'ventas-coccoa.csv', mimeType: 'text/csv', buffer: Buffer.from(csv, 'latin1') });
       await page.waitForSelector('#paso2:not([hidden])');
-      assert.match(await page.textContent('#o-leido'), /6 filas con 5 columnas/);
+      assert.match(await page.textContent('#o-leido'), /6 boletas \(filas\) con 5 columnas/);
       // columnas adivinadas por el título
       assert.equal(await page.$eval('#o-col-id', (s) => s.options[s.selectedIndex].text), 'Código boleta');
       assert.equal(await page.$eval('#o-col-nombre', (s) => s.options[s.selectedIndex].text), 'Nombre');
       assert.equal(await page.$eval('#o-col-cantidad', (s) => s.options[s.selectedIndex].text), 'Cantidad');
-      assert.equal(await page.$eval('#o-col-filtro', (s) => s.options[s.selectedIndex].text), 'Estado');
-      assert.equal(await page.isChecked('#o-valores input[value="Aprobado"]'), true);
-      assert.equal(await page.isChecked('#o-valores input[value="Pendiente"]'), false, 'los pagos pendientes no participan');
+      assert.ok((await page.$$eval('#o-grupos legend', (xs) => xs.map((x) => x.textContent))).includes('Estado'));
+      assert.equal(await page.isChecked('#o-grupos input[value="Aprobado"]'), true);
+      assert.equal(await page.isChecked('#o-grupos input[value="Pendiente"]'), false, 'los pagos pendientes no participan');
       assert.match(await page.textContent('#o-muestra'), /María J\. E\. · …0001/);
 
       await page.fill('#o-titulo', 'Sorteo de cierre');
@@ -80,6 +81,59 @@ describe('herramienta del organizador', () => {
       const indice = JSON.parse(ind.texto);
       assert.equal(indice.sorteos.at(-1).id, s.id);
       assert.equal(indice.sorteos.at(-1).huella, s.huella);
+      assert.deepEqual(reg.errores, []);
+    } finally { await ctx.close(); }
+  });
+
+  test('el Excel de Coccoa tal cual: código del enlace, celular, filtros y avisos', async () => {
+    const { buffer, codigos, personas } = excelCoccoaFalso({ n: 30 });
+    const { ctx, page, reg } = await nuevaPagina(nav, sitio);
+    try {
+      await page.goto(sitio.url + '/sorteos/organizador');
+      await page.setInputFiles('#o-archivo', { name: 'Labs_Summit_.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer });
+      await page.waitForSelector('#paso2:not([hidden])');
+      assert.match(await page.textContent('#o-leido'), /30 boletas/);
+      const elegida = (sel) => page.$eval(sel, (s) => s.options[s.selectedIndex].text);
+      assert.equal(await elegida('#o-col-id'), 'Código del enlace (Visualizar código)');
+      assert.equal(await elegida('#o-col-nombre'), 'Nombre');
+      assert.equal(await elegida('#o-col-visible'), 'Tel.');
+      const grupos = await page.$$eval('#o-grupos legend', (xs) => xs.map((x) => x.textContent));
+      for (const g of ['Tipo', 'Etapa', 'Metodo de pago', 'Promotor']) assert.ok(grupos.includes(g), 'filtro por ' + g);
+      for (const g of ['Visualizar código', 'Reenviar', 'Precio', 'Id Pago', 'Valido', 'Dia vendido', 'Nombre', 'Correo']) assert.ok(!grupos.includes(g), 'sin filtro por ' + g);
+      const avisos = await page.textContent('#o-avisos');
+      assert.match(avisos, /30 de 30 boletas participan/);
+      assert.match(avisos, /Ventas incluidas: desde 2026-10-28/);
+      assert.match(avisos, /código del enlace/);
+      assert.match(avisos, /27 boletas .*«Cortesía»/);
+      assert.match(await page.textContent('#o-muestra'), /María J\. E\. · …1000/);
+      // con el correo como identificador se juntarían personas distintas: la herramienta lo advierte
+      await page.selectOption('#o-col-id', { label: 'Correo' });
+      assert.match(await page.textContent('#o-avisos'), /se repite.*nombres distintos/);
+      await page.selectOption('#o-col-id', { label: 'Código del enlace (Visualizar código)' });
+      // solo las compradas
+      await page.uncheck('#o-grupos input[value="Cortesia"]');
+      assert.match(await page.textContent('#o-avisos'), /3 de 30 boletas participan/);
+      await page.check('#o-grupos input[value="Cortesia"]');
+
+      await page.fill('#o-titulo', 'Sorteo Día 2');
+      await page.fill('#o-premios', 'Bono');
+      await page.fill('#o-hora', horaLocal(Date.now() + 10 * 60e3));
+      await page.click('#o-generar');
+      await page.waitForSelector('#paso4:not([hidden])');
+      assert.match(await page.textContent('#o-resumen'), /30 boletas participan/);
+      const [d1] = await Promise.all([page.waitForEvent('download'), page.click('#o-bajar-publico')]);
+      const texto = readFileSync(await d1.path(), 'utf8'), s = JSON.parse(texto);
+      assert.equal(s.participantes.length, 30, 'cada boleta cuenta, aunque compartan correo o celular');
+      assert.equal(s.participantes[0][0], 'María J. E. · …1000');
+      for (const p of personas) {
+        assert.ok(!texto.includes(p.correo), 'sin correos');
+        assert.ok(!texto.includes(p.codigo), 'sin el código del enlace');
+        assert.ok(!texto.includes(p.tel) && !texto.includes(p.tel.replace(/\D/g, '')), 'sin celulares');
+      }
+      const [d2] = await Promise.all([page.waitForEvent('download'), page.click('#o-bajar-privado')]);
+      const priv = JSON.parse(readFileSync(await d2.path(), 'utf8'));
+      assert.equal(priv.revelable, false, 'el código del enlace nunca se revela');
+      assert.deepEqual(priv.participantes.map((x) => x.idOriginal), codigos);
       assert.deepEqual(reg.errores, []);
     } finally { await ctx.close(); }
   });
