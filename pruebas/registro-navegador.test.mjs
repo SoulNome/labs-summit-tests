@@ -374,6 +374,30 @@ describe('sorteo en vivo', () => {
   });
 });
 
+describe('historial de ganadores', () => {
+  test('muestra cada sorteo publicado con el nombre completo y el celular de quien ganó', async () => {
+    // quedan los dos ensayos del sorteo en vivo: el del bono (sus inscritos ya se borraron) y el del iPad (Única Persona)
+    const { ctx, page, reg } = await nuevaPagina(nav, sitio, { prueba: PRUEBA });
+    try {
+      await simularDrand(page, (r) => r.fulfill(jsonCors(RONDA_38)));
+      await page.goto(sitio.url + '/sorteos/organizador');
+      await page.click('#o-ver-historial');
+      assert.match(await page.textContent('#o-historial-estado'), /Escribe la clave/);
+      await page.fill('#o-clave', CLAVE_PRUEBA);
+      await page.click('#o-ver-historial');
+      await page.waitForFunction(() => document.querySelectorAll('.th-ganadores').length >= 2, null, { timeout: 15000 });
+      const tarjetas = await page.$$eval('.tarjeta-historial', (xs) => xs.map((x) => x.textContent));
+      const ipad = tarjetas.find((t) => /Sorteo del iPad/.test(t));
+      const bono = tarjetas.find((t) => /Sorteo del bono/.test(t));
+      assert.match(ipad, /Ensayo/);
+      assert.match(ipad, /iPad\s*Única Persona · 3003330001/);
+      assert.match(bono, /ya no está en los registros: (Laura S\. G\.|Julián L\.|Camila R\.) · …000[123]/);
+      assert.deepEqual(reg.errores, []);
+      assert.deepEqual(reg.csp, []);
+    } finally { await ctx.close(); }
+  });
+});
+
 describe('pantalla del sorteo', () => {
   test('revela al ganador con confeti, muestra los suplentes aparte y el QR para registrarse', async () => {
     // una copia de la cadena de prueba en la que la ronda 38 sale en 6 segundos: así la pantalla llega antes del sorteo
