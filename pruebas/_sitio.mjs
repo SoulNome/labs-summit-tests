@@ -28,7 +28,9 @@ export async function iniciarSitio(op = {}) {
   if (process.env.BASE_URL) return { url: process.env.BASE_URL.replace(/\/+$/, ''), remoto: true, cerrar: async () => {} };
   // Puerto propio también para el inspector: si no, dos copias que arrancan a la vez chocan en el 9229
   const [puerto, inspector] = [await puertoLibre(), await puertoLibre()];
-  const extra = op.registro ? ['--d1', 'SORTEO_DB', '--binding', 'SORTEO_CLAVE=' + (op.clave || CLAVE_PRUEBA), '--binding', 'SORTEO_LIMITE_IP=' + (op.limiteIp || 1500)] : [];
+  const extra = op.registro ? ['--d1', 'SORTEO_DB', '--binding', 'SORTEO_LIMITE_IP=' + (op.limiteIp || 1500)] : [];
+  if (op.registro && !op.sinClave) extra.push('--binding', 'SORTEO_CLAVE=' + (op.clave || CLAVE_PRUEBA));
+  for (const b of op.variables || []) extra.push('--binding', b);   // p. ej. una configuración equivocada de Cloudflare
   const bin = path.join(aqui, '..', 'node_modules', '.bin', 'wrangler');
   // Se arranca DESDE la carpeta del sitio: así wrangler encuentra functions/ (la función que responde 403),
   // igual que Cloudflare Pages con la raíz del repo. El estado temporal va a una carpeta del sistema.

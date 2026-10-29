@@ -5,12 +5,17 @@ import assert from 'node:assert/strict';
 import { iniciarSitio, CLAVE_PRUEBA } from './_sitio.mjs';
 import { cargarNucleos, sorteoDePrueba } from './_datos.mjs';
 
-let sitio, sinBase, N;
+let sitio, sinBase, baseComoTexto, sinClave, N;
 before(async () => {
   ({ N } = cargarNucleos());
-  [sitio, sinBase] = await Promise.all([iniciarSitio({ registro: true, limiteIp: 5 }), iniciarSitio()]);
+  [sitio, sinBase, baseComoTexto, sinClave] = await Promise.all([
+    iniciarSitio({ registro: true, limiteIp: 5 }),
+    iniciarSitio(),
+    iniciarSitio({ variables: ['SORTEO_DB=labs-sorteo', 'SORTEO_CLAVE=' + CLAVE_PRUEBA] }),   // SORTEO_DB puesta como texto, no como base D1
+    iniciarSitio({ registro: true, sinClave: true })
+  ]);
 });
-after(async () => { await sitio?.cerrar(); await sinBase?.cerrar(); });
+after(async () => { for (const s of [sitio, sinBase, baseComoTexto, sinClave]) await s?.cerrar(); });
 
 // Cada pedido sale de una «conexión» distinta, salvo que la prueba diga otra cosa (el límite es por IP)
 let n = 0;
@@ -210,10 +215,25 @@ describe('sin la base de datos (antes de configurar Cloudflare)', () => {
       const r = await pedir(ruta, { ...op, base: sinBase });
       assert.equal(r.status, 503, ruta);
       assert.equal(r.d.configurado, false);
+      assert.match(r.d.motivo, /Falta enlazar la base.*Bindings.*D1 database.*SORTEO_DB/, 'dice qué falta');
     }
     for (const ruta of ['/', '/participa', '/sorteos/', '/sorteos/organizador', '/robots.txt']) {
       assert.equal((await fetch(sinBase.url + ruta)).status, 200, ruta);
     }
     assert.equal((await fetch(sinBase.url + '/.git/config')).status, 403);
+  });
+
+  test('si SORTEO_DB quedó como variable de texto, lo dice', async () => {
+    const r = await pedir('/api/participa', { base: baseComoTexto });
+    assert.equal(r.status, 503);
+    assert.match(r.d.motivo, /variable de texto.*Bindings.*D1 database/);
+    assert.ok(!r.texto.includes('labs-sorteo') && !r.texto.includes(CLAVE_PRUEBA), 'no muestra valores de la configuración');
+  });
+
+  test('con la base pero sin la clave, el registro funciona y el organizador sabe qué falta', async () => {
+    assert.equal((await pedir('/api/participa', { metodo: 'POST', cuerpo: { nombre: 'Ana Pérez', celular: '3001112233', autoriza: true }, base: sinClave })).status, 201);
+    const r = await pedir('/api/registros', { clave: CLAVE_PRUEBA, base: sinClave });
+    assert.equal(r.status, 503);
+    assert.match(r.d.error, /Secret llamado SORTEO_CLAVE/);
   });
 });
