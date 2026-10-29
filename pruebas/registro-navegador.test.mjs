@@ -120,6 +120,17 @@ describe('página del QR (/participa)', () => {
     } finally { await ctx.close(); }
   });
 
+  test('muestra los 5 premios en el orden en que se sortean', async () => {
+    const { ctx, page } = await enCelular();
+    try {
+      await page.goto(sitio.url + '/participa');
+      const premios = await page.$$eval('#principal .p-premios li .t b', (xs) => xs.map((x) => x.textContent));
+      assert.deepEqual(premios, ['Bono de $500.000', 'iPad', 'Hospedaje', 'Reloj', 'iPhone 17']);
+      assert.match(await page.textContent('#principal .p-premios li.bono'), /arreglos de dispositivos tecnológicos/);
+      assert.equal(await page.$eval('#principal .p-premios', (ol) => ol.tagName), 'OL', 'lista ordenada');
+    } finally { await ctx.close(); }
+  });
+
   test('pantalla para proyectar: QR grande y cuántos participan', async () => {
     const { ctx, page, reg } = await nuevaPagina(nav, sitio);
     try {
@@ -203,6 +214,37 @@ describe('organizador con los registros del QR', () => {
       await page.reload();
       await page.waitForSelector('#paso4:not([hidden])');
       assert.match(await page.textContent('#o-estado-ganadores'), /deja esta página abierta/);
+    } finally { await ctx.close(); }
+  });
+
+  test('botones de los premios del evento y ensayo rápido', async () => {
+    const { ctx, page } = await nuevaPagina(nav, sitio, { prueba: PRUEBA });
+    try {
+      await page.goto(sitio.url + '/sorteos/organizador');
+      await page.fill('#o-pegar', 'Nombre\tCelular\nAna Pérez\t3001112233\nLuis Peña\t3004445566');
+      await page.click('#o-leer');
+      await page.waitForSelector('#paso3:not([hidden])');
+      assert.deepEqual(await page.$$eval('#o-premios-evento button', (xs) => xs.map((x) => x.textContent)), ['1. Bono $500.000', '2. iPad', '3. Hospedaje', '4. Reloj', '5. iPhone 17']);
+      await page.click('#o-premios-evento button:nth-child(2)');
+      assert.equal(await page.inputValue('#o-titulo'), 'Sorteo del iPad');
+      assert.equal(await page.inputValue('#o-premios'), 'iPad\nSuplente 1\nSuplente 2');
+      assert.equal(await page.getAttribute('#o-premios-evento button:nth-child(2)', 'aria-pressed'), 'true');
+      await page.uncheck('#o-con-suplentes');
+      assert.equal(await page.inputValue('#o-premios'), 'iPad');
+      await page.click('#o-premios-evento button:nth-child(1)');
+      assert.equal(await page.inputValue('#o-premios'), 'Bono de $500.000 para arreglos de dispositivos tecnológicos');
+      // ensayo: botón de 1 minuto y el botón dice que es un ensayo
+      assert.equal(await page.isHidden('#o-1min'), true);
+      await page.check('#o-ensayo');
+      assert.equal(await page.isVisible('#o-1min'), true);
+      assert.match(await page.textContent('#o-generar'), /ENSAYO/);
+      await page.click('#o-1min');
+      await page.click('#o-generar');
+      await page.waitForSelector('#paso4:not([hidden])');
+      assert.match(await page.textContent('#o-resumen'), /Ensayo/);
+      assert.match(await page.textContent('#o-generar'), /ENSAYO/);
+      await page.uncheck('#o-ensayo');
+      assert.match(await page.textContent('#o-generar'), /generar el sorteo$/);
     } finally { await ctx.close(); }
   });
 
